@@ -24,6 +24,14 @@ npm install
 npm run dev
 ```
 
+### YAMNet laptop detector
+
+The detector uses the laptop microphone and forwards confirmed classifications
+to FastAPI. Follow [detector/README.md](detector/README.md) to install its
+Python dependencies and run it. The detector sends sound labels and scores;
+microphone audio stays local. ESP32 serial audio capture is not part of this
+detector integration yet.
+
 Open http://localhost:5173. Until real clients connect, the detector and wristband show as disconnected. Vibration settings are saved in browser localStorage and can be previewed without hardware.
 
 ## Bridge protocol
@@ -37,4 +45,4 @@ Open http://localhost:5173. Until real clients connect, the detector and wristba
 
 The detector sends only `{type:"sound_detected",category,confidence,timestamp}`. FastAPI forwards the event to browsers and routes the category's saved pulse configuration to the device. The device should answer with `{type:"haptic_ack",event_id,category,status:"received"}` and may send `{type:"haptic_complete",event_id,category}` only when motor completion is known. Supported categories are `ALARM`, `VEHICLE_HORN`, `DOORBELL`, `KNOCKING`, and `SIREN`.
 
-`detector_client_example.py` documents a reconnecting adapter contract. Integrate its `run_detector_adapter` with the existing YAMNet classification stream; do not pass microphone audio to this service.
+The integrated `detector/live_detector.py` sends confirmed YAMNet classifications to `/ws/detector`. It preserves local microphone processing and does not send audio to FastAPI.

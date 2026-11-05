@@ -1,0 +1,6 @@
+numpy==1.26.4
+tensorflow==2.15.1
+tensorflow-hub==0.16.1
+sounddevice
+scipy
+websockets
