@@ -1,74 +1,42 @@
-# YAMNet detector integration
+# Laptop microphone and YAMNet detector
 
-`live_detector.py` uses the supplied YAMNet model flow, category mapping,
-thresholds, temporal confirmation, and cooldown. It captures audio locally on
-the laptop, then sends only confirmed category, score, and timestamp messages
-to FastAPI at `/ws/detector`. Microphone audio is never sent to the website.
+This process captures sound from a Windows input device, classifies it locally with YAMNet, and sends confirmed category events to the FastAPI bridge at `ws://127.0.0.1:8000/ws/detector`. The microphone audio itself is not sent to the backend.
 
-The current capture path is the laptop microphone. The ESP32-C6 USB serial
-audio path described in the project handoff is a separate future integration;
-this script does not read ESP32 serial audio or send motor commands directly.
-FastAPI routes detections and the saved vibration patterns to a connected
-wristband.
+## Install
 
-## Setup
-
-The supplied YAMNet scripts already ran in a Python 3.10 environment. Reuse
-that environment if it is still available; activate it and install only the
-WebSocket client if needed:
+From the repository root in PowerShell:
 
 ```powershell
-& "C:\path\to\existing\.venv\Scripts\Activate.ps1"
-python -m pip install websockets
+py -3.11 -m venv .venv-detector
+.\.venv-detector\Scripts\Activate.ps1
+pip install -r .\detector\requirements.txt
 ```
 
-For a fresh environment, use Python 3.10 from the repository root:
+Start FastAPI first, then run:
 
 ```powershell
-py -3.10 -m venv detector\.venv
-detector\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r detector\requirements.txt
+Remove-Item Env:DHVANI_MIC_DEVICE -ErrorAction SilentlyContinue
+.\detector\run_laptop_mic.ps1
 ```
 
-Start the FastAPI backend from another terminal:
+With `DHVANI_MIC_DEVICE` unset, the detector uses the Windows default recording device. Choose it under **Settings → System → Sound → Input**. To select a named device explicitly, set an identifying substring before running the script:
 
 ```powershell
-cd backend
-.\.venv\Scripts\Activate.ps1
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+$env:DHVANI_MIC_DEVICE = 'AB13X USB Audio'
+.\detector\run_laptop_mic.ps1
 ```
 
-Start the website from a third terminal:
+The terminal prints the selected device. Check that the reported audio level changes when speaking or making sound near the mic. Press Ctrl+C to stop the detector.
 
-```powershell
-cd web
-npm install
-npm run dev
-```
+## Model and categories
 
-Then run the detector from the repository root, with the YAMNet environment
-active:
+YAMNet and AudioSet labels are downloaded/cached by TensorFlow Hub on first use. The detector maps model labels to `ALARM`, `VEHICLE_HORN`, `DOORBELL`, `KNOCKING`, and `SIREN`, applies temporal confirmation, and forwards confirmed classifications. It is a sound classifier: arbitrary speech, music, or noise will not necessarily trigger one of those categories.
 
-```powershell
-detector\.venv\Scripts\Activate.ps1
-python detector\live_detector.py
-```
+## Environment settings
 
-The first run loads YAMNet and AudioSet labels using TensorFlow Hub/network
-access. Choose the microphone with `DHVANI_MIC_DEVICE` if device 1 is not the
-intended input. For example:
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DHVANI_MIC_DEVICE` | Windows default input | Device-name substring or PortAudio input index |
+| `DHVANI_DETECTOR_WS` | `ws://127.0.0.1:8000/ws/detector` | FastAPI detector WebSocket |
 
-```powershell
-$env:DHVANI_MIC_DEVICE = "0"
-```
-
-If FastAPI is on another computer, set `DHVANI_DETECTOR_WS` to that computer's
-reachable address, for example `ws://192.168.1.20:8000/ws/detector`.
-
-## Classification behavior
-
-The supplied mapping is preserved in `sound_categories.py`: alarm, vehicle
-horn, doorbell, knocking, and siren. The thresholds and temporal confirmation
-remain prototype settings; YAMNet scores are not validated accuracy. Tune them
-with representative recordings before relying on the alerts.
+The optional `start_detector.ps1` launcher starts the process in the background and records its PID/log under the ignored `work/` directory.

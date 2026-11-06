@@ -1,6 +1,7 @@
-numpy==1.26.4
-tensorflow==2.15.1
+tensorflow==2.21.0
 tensorflow-hub==0.16.1
-sounddevice
-scipy
-websockets
+tf-keras==2.21.0
+sounddevice==0.5.6
+scipy>=1.13
+websockets>=14
+setuptools<81

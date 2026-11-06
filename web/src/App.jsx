@@ -13,7 +13,7 @@ const SOUNDS = [
 const PRESETS = ['Single Pulse', 'Double Pulse', 'Triple Pulse', 'Long Vibration', 'Repeated Pulses', 'Custom Pattern'];
 const DEFAULTS = Object.fromEntries(SOUNDS.map((s) => [s.id, { preset: s.id === 'KNOCKING' ? 'Double Pulse' : 'Triple Pulse', intensity: 75, onMs: 240, offMs: 150, repeat: 2 }]));
 const NAV = [{ id: 'overview', label: 'Overview', icon: Home }, { id: 'customize', label: 'Customize Vibrations', icon: SlidersHorizontal }, { id: 'history', label: 'Detection History', icon: History }, { id: 'device', label: 'Device Settings', icon: Settings }];
-const emptyStatus = { detector: false, device: false, microphone: false, listening: false, last_signal: null, device_ip: null };
+const emptyStatus = { detector: false, device: false, microphone: false, listening: false, microphone_rms: null, microphone_device: null, microphone_sample_rate: null, last_signal: null, device_ip: null };
 
 function loadPatterns() { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('dhvani-patterns') || '{}') }; } catch { return { ...DEFAULTS }; } }
 function timeLabel(value) { if (!value) return '—'; const d = new Date(value); return Number.isNaN(d.valueOf()) ? '—' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
@@ -73,6 +73,21 @@ function App() {
       socket.onerror = () => socket.close();
     };
     connect(); return () => { stopped = true; clearTimeout(timer); wsRef.current?.close(); };
+  }, []);
+
+  useEffect(() => {
+    let stopped = false;
+    const refreshStatus = async () => {
+      try {
+        const response = await fetch(`${API}/api/status`);
+        if (!response.ok) return;
+        const currentStatus = await response.json();
+        if (!stopped) setStatus(currentStatus);
+      } catch { /* The WebSocket connection reports backend availability. */ }
+    };
+    refreshStatus();
+    const interval = setInterval(refreshStatus, 2000);
+    return () => { stopped = true; clearInterval(interval); };
   }, []);
 
   useEffect(() => { localStorage.setItem('dhvani-patterns', JSON.stringify(patterns)); }, [patterns]);
@@ -178,7 +193,7 @@ function RangeControl({ label, value, min, max, step = 1, unit, onChange }) { re
 function Timeline({ cfg, active }) { const count = Math.max(1, Math.min(cfg.repeat, 5)); return <div className={`timeline ${active ? 'timeline-active' : ''}`}><div className="timeline-track">{Array.from({ length: count }, (_, i) => <React.Fragment key={i}><div className={`pulse-block ${active ? 'pulse-playing' : ''}`} style={{ animationDelay: `${i * (cfg.onMs + cfg.offMs)}ms` }}><Activity size={25}/></div>{i < count - 1 && <div className="pause-block">PAUSE<br/><small>({cfg.offMs}ms)</small></div>}</React.Fragment>)}</div><div className="timeline-labels">{Array.from({ length: count }, (_, i) => <span key={i}>VIBRATE<br/>({cfg.onMs}ms)</span>)}</div></div>; }
 function Overview({ status, wsState, events, current, patterns, onEdit }) {
   const detectorOn = status.detector;
-  return <div className="overview-page"><div className="overview-top"><section><SectionTitle n="1" title="System Status"/><div className="panel listening-card"><div className={`listening-banner ${status.listening && detectorOn ? 'is-listening' : ''}`}><strong>{status.listening && detectorOn ? 'LISTENING' : 'STOPPED'}</strong><div className="waveform">{Array.from({ length: 38 }, (_, i) => <i key={i} style={{ height: `${7 + ((i * 23 + 9) % 25)}px` }}/>)}</div></div><div className="status-line"><span><i className={status.microphone ? 'good' : ''}/>Microphone: <b>{status.microphone ? 'ACTIVE' : 'NOT REPORTED'}</b></span><span><i className={wsState === 'connected' ? 'good' : ''}/>WebSocket: <b>{wsState === 'connected' ? 'CONNECTED' : wsState.toUpperCase()}</b></span></div></div></section>
+  return <div className="overview-page"><div className="overview-top"><section><SectionTitle n="1" title="System Status"/><div className="panel listening-card"><div className={`listening-banner ${status.listening && detectorOn ? 'is-listening' : ''}`}><strong>{status.listening && detectorOn ? 'LISTENING' : 'STOPPED'}</strong><div className="waveform">{Array.from({ length: 38 }, (_, i) => <i key={i} style={{ height: `${7 + ((i * 23 + 9) % 25)}px` }}/>)}</div></div><div className="status-line"><span title={status.microphone_device || 'Laptop microphone'}><i className={status.microphone ? 'good' : ''}/>Microphone: <b>{status.microphone ? 'ACTIVE' : 'NOT REPORTED'}</b>{status.microphone_rms != null && <small className='mic-level'>RMS {status.microphone_rms.toFixed(4)}</small>}</span><span><i className={wsState === 'connected' ? 'good' : ''}/>WebSocket: <b>{wsState === 'connected' ? 'CONNECTED' : wsState.toUpperCase()}</b></span></div></div></section>
     <section><SectionTitle n="2" title="Current Sound Detection"/><div className="panel current-card">{current ? <><div className="detected-chip"><Activity size={16}/> DETECTED</div><strong className="current-name">{SOUNDS.find((s) => s.id === current.category)?.name || current.category}</strong><div className="current-meta"><span>{Math.round((current.confidence || 0) * 100)}% confidence</span><span>{timeLabel(current.timestamp)}</span></div></> : <><p>LISTENING FOR IMPORTANT<br/>ENVIRONMENTAL SOUNDS...</p><div className="quiet-wave">{Array.from({ length: 24 }, (_, i) => <i key={i} style={{ height: `${4 + (i * 13 % 17)}px` }}/>)}</div></>}</div></section></div>
     <section className="category-section"><SectionTitle n="3" title="Sound Categories"/><div className="category-grid">{SOUNDS.map((s) => { const Icon = s.icon; const last = events.find((e) => e.category === s.id); return <article className="panel category-card" key={s.id}><div className="category-title"><Icon className={s.color} size={21}/><strong>{s.name}</strong></div><p>Last Detected: <span>{last ? timeLabel(last.timestamp) : 'None'}</span></p><p>Vibration Pattern:<br/><span>{patterns[s.id]?.preset || 'Default'}</span></p><button className="button outline edit-pattern" onClick={() => onEdit(s.id)}>Edit Pattern</button></article>; })}</div></section>
     <section className="recent-section"><div className="section-heading-row"><SectionTitle n="4" title="Recent Detection History"/><span className="live-label"><i/>LIVE DATA</span></div><EventTable events={events.slice(0, 6)} compact/></section></div>;

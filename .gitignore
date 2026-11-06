@@ -1,9 +1,14 @@
 node_modules/
 dist/
 .venv/
+.venv-*/
 __pycache__/
 detector/__pycache__/
 *.py[cod]
 backend/data/*.json
 .env
 work/
+build/
+sdkconfig
+sdkconfig.old
+managed_components/

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -17,6 +18,9 @@ class Bridge:
         self.device: WebSocket | None = None
         self.detector_connected = False
         self.detector_last_seen: datetime | None = None
+        self.microphone_rms: float | None = None
+        self.microphone_device: str | None = None
+        self.microphone_sample_rate: int | None = None
         self.device_last_seen: datetime | None = None
         self.device_ip: str | None = None
         self.lock = asyncio.Lock()
@@ -28,6 +32,9 @@ class Bridge:
             "device": self.device is not None,
             "microphone": self.detector_connected,
             "listening": self.detector_connected,
+            "microphone_rms": self.microphone_rms,
+            "microphone_device": self.microphone_device,
+            "microphone_sample_rate": self.microphone_sample_rate,
             "last_signal": self.device_last_seen.isoformat() if self.device_last_seen else None,
             "device_ip": self.device_ip,
             "detector_last_seen": self.detector_last_seen.isoformat() if self.detector_last_seen else None,
@@ -237,11 +244,31 @@ async def detector_socket(websocket: WebSocket):
             raw = await websocket.receive_text()
             bridge.detector_last_seen = datetime.now(timezone.utc)
             try:
-                await bridge.handle_detection(json.loads(raw))
+                message = json.loads(raw)
+                kind = message.get("type")
+                if kind == "detector_status":
+                    device_name = message.get("microphone_device")
+                    bridge.microphone_device = str(device_name)[:128] if device_name else None
+                    sample_rate = message.get("sample_rate")
+                    bridge.microphone_sample_rate = int(sample_rate) if sample_rate else None
+                    await bridge.broadcast_status()
+                elif kind == "audio_level":
+                    rms = float(message.get("rms"))
+                    if not math.isfinite(rms) or rms < 0 or rms > 1:
+                        raise ValueError("RMS must be a finite value from 0 to 1")
+                    bridge.microphone_rms = rms
+                    await bridge.broadcast_status()
+                else:
+                    await bridge.handle_detection(message)
             except (json.JSONDecodeError, ValidationError, KeyError) as exc:
+                await websocket.send_json({"type": "error", "message": str(exc)[:180]})
+            except (TypeError, ValueError) as exc:
                 await websocket.send_json({"type": "error", "message": str(exc)[:180]})
     except WebSocketDisconnect:
         pass
     finally:
         bridge.detector_connected = False
+        bridge.microphone_rms = None
+        bridge.microphone_device = None
+        bridge.microphone_sample_rate = None
         await bridge.broadcast_status()
